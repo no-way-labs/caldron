@@ -19,6 +19,10 @@ A CLI tool for ephemeral, encrypted file/data transfer. One party opens a "mitt"
 
 ```bash
 # Install bore (optional)
+# Via Homebrew
+brew install bore-cli
+
+# Or via Cargo
 cargo install bore-cli
 ```
 
