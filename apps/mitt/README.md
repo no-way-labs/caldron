@@ -54,6 +54,9 @@ mitt open --stdout
 
 # Use specific port
 mitt open --port 8080
+
+# Local mode (no tunnel, for testing)
+mitt open --port 8080 --local
 ```
 
 When you run `mitt open`, you'll see output like:

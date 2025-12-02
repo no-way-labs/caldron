@@ -1,27 +1,18 @@
 const std = @import("std");
 
-pub const Provider = enum {
-    bore,
-};
-
 pub const Tunnel = struct {
-    public_url: []const u8,
-    id: []const u8,
+    public_host: []const u8,
+    public_port: u16,
     process: std.process.Child,
     allocator: std.mem.Allocator,
 
-    pub fn establish(allocator: std.mem.Allocator, provider: Provider, local_port: u16, requested_id: ?[]const u8) !Tunnel {
-        _ = requested_id;
-
-        switch (provider) {
-            .bore => return try establishBore(allocator, local_port),
-        }
+    pub fn establish(allocator: std.mem.Allocator, local_port: u16) !Tunnel {
+        return try establishBore(allocator, local_port);
     }
 
     pub fn shutdown(self: *Tunnel) void {
         _ = self.process.kill() catch {};
-        self.allocator.free(self.public_url);
-        self.allocator.free(self.id);
+        self.allocator.free(self.public_host);
     }
 };
 
@@ -42,12 +33,12 @@ fn establishBore(allocator: std.mem.Allocator, local_port: u16) !Tunnel {
 
     try process.spawn();
 
-    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_buffer: [4096]u8 = undefined;
     var total_read: usize = 0;
 
     const stdout = process.stdout.?;
     var timeout_counter: u32 = 0;
-    const max_timeout: u32 = 50;
+    const max_timeout: u32 = 100;
 
     while (timeout_counter < max_timeout) : (timeout_counter += 1) {
         const bytes_read = stdout.read(stdout_buffer[total_read..]) catch |err| {
@@ -59,13 +50,20 @@ fn establishBore(allocator: std.mem.Allocator, local_port: u16) !Tunnel {
             total_read += bytes_read;
             const output = stdout_buffer[0..total_read];
 
-            if (std.mem.indexOf(u8, output, "bore.pub")) |_| {
-                const url = try extractBoreUrl(allocator, output);
-                const id = try extractIdFromUrl(allocator, url);
+            // Look for "listening at bore.pub:PORT"
+            if (std.mem.indexOf(u8, output, "listening at bore.pub:")) |pos| {
+                const port_start = pos + "listening at bore.pub:".len;
+                const port_end_opt = std.mem.indexOfScalarPos(u8, output, port_start, '\n');
+                const port_end = port_end_opt orelse output.len;
+
+                const port_str_extracted = std.mem.trim(u8, output[port_start..port_end], &std.ascii.whitespace);
+                const public_port = try std.fmt.parseInt(u16, port_str_extracted, 10);
+
+                const public_host = try allocator.dupe(u8, "bore.pub");
 
                 return Tunnel{
-                    .public_url = url,
-                    .id = id,
+                    .public_host = public_host,
+                    .public_port = public_port,
                     .process = process,
                     .allocator = allocator,
                 };
@@ -77,27 +75,4 @@ fn establishBore(allocator: std.mem.Allocator, local_port: u16) !Tunnel {
 
     _ = process.kill() catch {};
     return error.TunnelTimeout;
-}
-
-fn extractBoreUrl(allocator: std.mem.Allocator, output: []const u8) ![]const u8 {
-    if (std.mem.indexOf(u8, output, "https://")) |start| {
-        var end = start + 8;
-        while (end < output.len and !std.ascii.isWhitespace(output[end])) : (end += 1) {}
-
-        return try allocator.dupe(u8, output[start..end]);
-    }
-
-    return error.UrlNotFound;
-}
-
-fn extractIdFromUrl(allocator: std.mem.Allocator, url: []const u8) ![]const u8 {
-    if (std.mem.indexOf(u8, url, "://")) |scheme_end| {
-        const after_scheme = url[scheme_end + 3 ..];
-
-        if (std.mem.indexOf(u8, after_scheme, ".")) |dot| {
-            return try allocator.dupe(u8, after_scheme[0..dot]);
-        }
-    }
-
-    return error.InvalidUrl;
 }

@@ -2,8 +2,7 @@ const std = @import("std");
 const server = @import("server.zig");
 const client = @import("client.zig");
 const tunnel = @import("tunnel.zig");
-const id = @import("id.zig");
-const config = @import("config.zig");
+const crypto = @import("crypto.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -37,21 +36,22 @@ fn printUsage() !void {
         \\
         \\Commands:
         \\  open              Start a server to receive files
-        \\  send <id@provider> <payload>  Send a file to an open mitt
+        \\  send <host:port> <payload>  Send a file to an open mitt
         \\
         \\Open options:
         \\  --port <port>     Local port (default: random)
-        \\  --id <name>       Request specific ID
-        \\  --via <provider>  Tunnel provider (default: bore)
+        \\  --local           Local only, no tunnel (for testing)
         \\  --dir <path>      Save directory (default: ./inbox)
         \\  --stdout          Print to stdout instead of saving
         \\  --accept <globs>  Whitelist (e.g., *.txt,*.csv)
         \\  --reject <globs>  Blacklist (e.g., *.exe)
         \\  --max-size <bytes> Max file size (default: 100mb)
+        \\  --password <pass> Encryption password (default: auto-generated)
         \\
         \\Send options:
         \\  --text <string>   Send literal text
         \\  --timeout <seconds> Wait time (default: 30)
+        \\  --password <pass> Encryption password (required)
         \\
     ;
     try std.io.getStdErr().writeAll(usage);
@@ -59,13 +59,13 @@ fn printUsage() !void {
 
 fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
     var port: u16 = 0;
-    var requested_id: ?[]const u8 = null;
-    var provider = tunnel.Provider.bore;
     var dir: []const u8 = "./inbox";
     var to_stdout = false;
+    var local_only = false;
     var accept: ?[]const []const u8 = null;
     var reject: ?[]const []const u8 = null;
     var max_size: u64 = 100 * 1024 * 1024;
+    var password_opt: ?[]const u8 = null;
 
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -74,19 +74,13 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         if (std.mem.eql(u8, arg, "--port") and i + 1 < args.len) {
             i += 1;
             port = try std.fmt.parseInt(u16, args[i], 10);
-        } else if (std.mem.eql(u8, arg, "--id") and i + 1 < args.len) {
-            i += 1;
-            requested_id = args[i];
-        } else if (std.mem.eql(u8, arg, "--via") and i + 1 < args.len) {
-            i += 1;
-            if (std.mem.eql(u8, args[i], "bore")) {
-                provider = .bore;
-            }
         } else if (std.mem.eql(u8, arg, "--dir") and i + 1 < args.len) {
             i += 1;
             dir = args[i];
         } else if (std.mem.eql(u8, arg, "--stdout")) {
             to_stdout = true;
+        } else if (std.mem.eql(u8, arg, "--local")) {
+            local_only = true;
         } else if (std.mem.eql(u8, arg, "--accept") and i + 1 < args.len) {
             i += 1;
             accept = try parseGlobs(allocator, args[i]);
@@ -96,9 +90,22 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         } else if (std.mem.eql(u8, arg, "--max-size") and i + 1 < args.len) {
             i += 1;
             max_size = try std.fmt.parseInt(u64, args[i], 10);
+        } else if (std.mem.eql(u8, arg, "--password") and i + 1 < args.len) {
+            i += 1;
+            password_opt = args[i];
         }
     }
 
+    // Generate or use password
+    const password = if (password_opt) |p|
+        try allocator.dupe(u8, p)
+    else
+        try crypto.generatePassword(allocator);
+    defer if (password_opt == null) allocator.free(password);
+
+    const key = crypto.deriveKey(password);
+
+    // Get port if not specified
     if (port == 0) {
         const address = try std.net.Address.parseIp4("127.0.0.1", 0);
         const socket = try std.posix.socket(address.any.family, std.posix.SOCK.STREAM, std.posix.IPPROTO.TCP);
@@ -107,11 +114,12 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         try std.posix.bind(socket, &address.any, address.getOsSockLen());
         try std.posix.listen(socket, 1);
 
-        var sock_addr: std.net.Address = undefined;
-        var sock_len = sock_addr.getOsSockLen();
-        try std.posix.getsockname(socket, &sock_addr.any, &sock_len);
+        var sock_addr: std.posix.sockaddr.storage = undefined;
+        var sock_len: std.posix.socklen_t = @sizeOf(@TypeOf(sock_addr));
+        try std.posix.getsockname(socket, @ptrCast(&sock_addr), &sock_len);
 
-        port = sock_addr.in.getPort();
+        const addr = std.net.Address.initPosix(@alignCast(@ptrCast(&sock_addr)));
+        port = addr.getPort();
     }
 
     var srv = try server.Server.init(allocator, port, .{
@@ -120,22 +128,39 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         .accept = accept,
         .reject = reject,
         .max_size = max_size,
-    });
+    }, key);
     defer srv.shutdown();
 
-    var tun = try tunnel.Tunnel.establish(allocator, provider, port, requested_id);
-    defer tun.shutdown();
+    std.debug.print("\n🔐 Password: {s}\n", .{password});
+    std.debug.print("Local: localhost:{d}\n\n", .{port});
 
-    std.debug.print("\nYour mitt: {s}@bore\n", .{tun.id});
-    std.debug.print("Public URL: {s}\n", .{tun.public_url});
+    var tun_opt: ?tunnel.Tunnel = null;
+    defer if (tun_opt) |*tun| tun.shutdown();
+
+    if (!local_only) {
+        if (tunnel.Tunnel.establish(allocator, port)) |tun| {
+            tun_opt = tun;
+            std.debug.print("Public: {s}:{d}\n", .{ tun.public_host, tun.public_port });
+            std.debug.print("\nTo send a file:\n", .{});
+            std.debug.print("  mitt send {s}:{d} <file> --password {s}\n\n", .{ tun.public_host, tun.public_port, password });
+        } else |err| {
+            std.debug.print("Warning: Could not establish tunnel ({any})\n", .{err});
+            std.debug.print("Running in local-only mode.\n\n", .{});
+            std.debug.print("To send a file:\n", .{});
+            std.debug.print("  mitt send localhost:{d} <file> --password {s}\n\n", .{ port, password });
+        }
+    } else {
+        std.debug.print("To send a file:\n", .{});
+        std.debug.print("  mitt send localhost:{d} <file> --password {s}\n\n", .{ port, password });
+    }
+
     std.debug.print("Waiting for files...\n\n", .{});
-
     try srv.run();
 }
 
 fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
     if (args.len < 2) {
-        std.debug.print("Usage: mitt send <id@provider> <payload>\n", .{});
+        std.debug.print("Usage: mitt send <host:port> <payload> --password <pass>\n", .{});
         std.process.exit(1);
     }
 
@@ -144,6 +169,7 @@ fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
 
     var text_payload: ?[]const u8 = null;
     var timeout_seconds: u64 = 30;
+    var password_opt: ?[]const u8 = null;
 
     var i: usize = 2;
     while (i < args.len) : (i += 1) {
@@ -155,11 +181,28 @@ fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         } else if (std.mem.eql(u8, arg, "--timeout") and i + 1 < args.len) {
             i += 1;
             timeout_seconds = try std.fmt.parseInt(u64, args[i], 10);
+        } else if (std.mem.eql(u8, arg, "--password") and i + 1 < args.len) {
+            i += 1;
+            password_opt = args[i];
         }
     }
 
-    const url = try resolveTarget(allocator, target);
-    defer allocator.free(url);
+    if (password_opt == null) {
+        std.debug.print("Error: --password is required\n", .{});
+        std.process.exit(1);
+    }
+
+    const password = password_opt.?;
+    const key = crypto.deriveKey(password);
+
+    // Parse target (host:port)
+    const colon_pos = std.mem.indexOf(u8, target, ":") orelse {
+        std.debug.print("Error: target must be in format host:port\n", .{});
+        std.process.exit(1);
+    };
+
+    const host = target[0..colon_pos];
+    const port = try std.fmt.parseInt(u16, target[colon_pos + 1 ..], 10);
 
     const payload = if (text_payload) |text|
         client.Payload{ .text = text }
@@ -168,20 +211,12 @@ fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
     else
         client.Payload{ .file = payload_arg };
 
-    const result = try client.send(allocator, url, payload, timeout_seconds * 1000);
+    const result = try client.send(allocator, host, port, payload, key, timeout_seconds * 1000);
 
     switch (result) {
-        .delivered => |info| {
+        .delivered => {
             std.debug.print("Delivered.\n", .{});
-            if (info.reply) |reply| {
-                allocator.free(reply);
-            }
             std.process.exit(0);
-        },
-        .rejected => |info| {
-            std.debug.print("Rejected: {s}\n", .{info.reason});
-            allocator.free(info.reason);
-            std.process.exit(1);
         },
         .failed => |info| {
             std.debug.print("Failed: {s}\n", .{info.err});
@@ -193,21 +228,6 @@ fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
             std.process.exit(2);
         },
     }
-}
-
-fn resolveTarget(allocator: std.mem.Allocator, target: []const u8) ![]const u8 {
-    if (std.mem.indexOf(u8, target, "@")) |at_index| {
-        const mitt_id = target[0..at_index];
-        const provider_name = target[at_index + 1 ..];
-
-        if (std.mem.eql(u8, provider_name, "bore")) {
-            return try std.fmt.allocPrint(allocator, "https://{s}.bore.pub", .{mitt_id});
-        }
-
-        return error.UnsupportedProvider;
-    }
-
-    return error.InvalidTargetFormat;
 }
 
 fn parseGlobs(allocator: std.mem.Allocator, input: []const u8) ![]const []const u8 {

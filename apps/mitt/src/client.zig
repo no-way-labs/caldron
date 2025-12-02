@@ -1,8 +1,8 @@
 const std = @import("std");
+const crypto = @import("crypto.zig");
 
 pub const SendResult = union(enum) {
-    delivered: struct { reply: ?[]const u8 },
-    rejected: struct { reason: []const u8 },
+    delivered,
     failed: struct { err: []const u8 },
     timeout,
 };
@@ -18,14 +18,10 @@ const PayloadData = struct {
     filename: []const u8,
 };
 
-pub fn send(allocator: std.mem.Allocator, url: []const u8, payload: Payload, timeout_ms: u64) !SendResult {
+pub fn send(allocator: std.mem.Allocator, host: []const u8, port: u16, payload: Payload, key: [32]u8, timeout_ms: u64) !SendResult {
     _ = timeout_ms;
 
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
-
-    const uri = try std.Uri.parse(url);
-
+    // Load payload
     const payload_data = switch (payload) {
         .file => |path| blk: {
             const file = std.fs.cwd().openFile(path, .{}) catch |err| {
@@ -50,49 +46,64 @@ pub fn send(allocator: std.mem.Allocator, url: []const u8, payload: Payload, tim
         },
         .text => |text| blk: {
             const content = try allocator.dupe(u8, text);
-            break :blk PayloadData{ .data = content, .filename = "text" };
+            break :blk PayloadData{ .data = content, .filename = "text.txt" };
         },
     };
     defer allocator.free(payload_data.data);
 
-    var header_buffer: [8192]u8 = undefined;
-    var request = try client.open(.POST, uri, .{
-        .server_header_buffer = &header_buffer,
-        .extra_headers = &.{
-            .{ .name = "x-filename", .value = payload_data.filename },
-            .{ .name = "x-size", .value = try std.fmt.allocPrint(allocator, "{d}", .{payload_data.data.len}) },
-            .{ .name = "content-type", .value = "application/octet-stream" },
-        },
-    });
-    defer request.deinit();
+    // Encrypt the data
+    var encrypted = try crypto.encrypt(allocator, payload_data.data, key);
+    defer encrypted.deinit();
 
-    request.transfer_encoding = .{ .content_length = payload_data.data.len };
+    // Connect to server
+    const stream = std.net.tcpConnectToHost(allocator, host, port) catch |err| {
+        const err_msg = try std.fmt.allocPrint(allocator, "Connection failed to {s}:{d}: {}", .{ host, port, err });
+        return SendResult{ .failed = .{ .err = err_msg } };
+    };
+    defer stream.close();
 
-    try request.send();
-    try request.writeAll(payload_data.data);
-    try request.finish();
+    // Send filename length (u16)
+    if (payload_data.filename.len > std.math.maxInt(u16)) {
+        const err_msg = try std.fmt.allocPrint(allocator, "Filename too long", .{});
+        return SendResult{ .failed = .{ .err = err_msg } };
+    }
 
-    try request.wait();
+    var filename_len_buf: [2]u8 = undefined;
+    std.mem.writeInt(u16, &filename_len_buf, @intCast(payload_data.filename.len), .big);
+    try stream.writeAll(&filename_len_buf);
 
-    const body = try request.reader().readAllAlloc(allocator, 1024 * 1024);
-    errdefer allocator.free(body);
+    // Send filename
+    try stream.writeAll(payload_data.filename);
 
-    switch (request.response.status) {
-        .ok => return SendResult{ .delivered = .{ .reply = body } },
-        .forbidden => {
-            const reason = try allocator.dupe(u8, body);
-            allocator.free(body);
-            return SendResult{ .rejected = .{ .reason = reason } };
-        },
-        .payload_too_large => {
-            const reason = try allocator.dupe(u8, body);
-            allocator.free(body);
-            return SendResult{ .rejected = .{ .reason = reason } };
-        },
-        else => {
-            const err_msg = try std.fmt.allocPrint(allocator, "HTTP {d}: {s}", .{ @intFromEnum(request.response.status), body });
-            allocator.free(body);
-            return SendResult{ .failed = .{ .err = err_msg } };
-        },
+    // Send encrypted data size (u64)
+    var encrypted_size_buf: [8]u8 = undefined;
+    std.mem.writeInt(u64, &encrypted_size_buf, encrypted.ciphertext.len, .big);
+    try stream.writeAll(&encrypted_size_buf);
+
+    // Send nonce
+    try stream.writeAll(&encrypted.nonce);
+
+    // Send tag
+    try stream.writeAll(&encrypted.tag);
+
+    // Send encrypted data
+    try stream.writeAll(encrypted.ciphertext);
+
+    // Read acknowledgment
+    var ack: [1]u8 = undefined;
+    const n = stream.readAll(&ack) catch {
+        const err_msg = try std.fmt.allocPrint(allocator, "No acknowledgment from server", .{});
+        return SendResult{ .failed = .{ .err = err_msg } };
+    };
+    if (n != 1) {
+        const err_msg = try std.fmt.allocPrint(allocator, "No acknowledgment from server", .{});
+        return SendResult{ .failed = .{ .err = err_msg } };
+    }
+
+    if (ack[0] == 0) {
+        return SendResult.delivered;
+    } else {
+        const err_msg = try std.fmt.allocPrint(allocator, "Server rejected transfer", .{});
+        return SendResult{ .failed = .{ .err = err_msg } };
     }
 }
