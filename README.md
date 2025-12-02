@@ -21,6 +21,17 @@ caldron/
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
+Install mitt via Homebrew:
+
+```bash
+brew tap no-way-labs/caldron
+brew install mitt
+```
+
+### From Source
+
 Install all CLI apps to `~/.local/bin` with the `caldron-` prefix:
 
 ```bash

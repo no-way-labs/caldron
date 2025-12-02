@@ -12,13 +12,32 @@ A CLI tool for ephemeral, encrypted file/data transfer. One party opens a "mitt"
 - Send files, stdin, or text
 - Raw TCP for fast, efficient transfers
 
-## Prerequisites
+## Installation
 
-- Zig 0.14.0 or later
-- [bore](https://github.com/ekzhang/bore) CLI (optional, only needed by receivers for public access)
+### Homebrew (macOS/Linux)
 
 ```bash
-# Install bore (optional, only for receivers)
+brew tap no-way-labs/caldron
+brew install mitt
+```
+
+### From Source
+
+Prerequisites:
+- Zig 0.14.0 or later
+
+```bash
+cd apps/mitt
+zig build
+```
+
+The binary will be at `zig-out/bin/mitt`.
+
+## Optional: bore CLI
+
+[bore](https://github.com/ekzhang/bore) is optional and only needed by receivers for public access:
+
+```bash
 # Via Homebrew
 brew install bore-cli
 
@@ -29,15 +48,6 @@ cargo install bore-cli
 **Note**: Only the receiver needs bore to create a public tunnel. Senders just need the mitt binary - they connect directly to the receiver's address without needing bore installed.
 
 If bore is not installed, mitt will automatically fall back to local-only mode.
-
-## Building
-
-```bash
-cd apps/mitt
-zig build
-```
-
-The binary will be at `zig-out/bin/mitt`.
 
 ## Usage
 
