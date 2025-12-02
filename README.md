@@ -26,7 +26,7 @@ caldron/
 Install mitt via Homebrew:
 
 ```bash
-brew tap no-way-labs/caldron
+brew tap no-way-labs/caldron https://github.com/no-way-labs/caldron.git
 brew install mitt
 ```
 
