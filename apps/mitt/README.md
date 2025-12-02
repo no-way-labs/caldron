@@ -1,24 +1,28 @@
 # mitt
 
-A CLI tool for ephemeral file/data transfer. One party opens a "mitt" (a publicly reachable inbox), others send to it.
+A CLI tool for ephemeral, encrypted file/data transfer. One party opens a "mitt" (a publicly reachable inbox), others send to it.
 
 ## Features
 
+- End-to-end encryption using XChaCha20-Poly1305
+- Password-based authentication
 - No accounts or central server required
-- Tunneling via third-party providers (bore)
-- Human-readable IDs (e.g., `blue-fox-42`)
+- Tunneling via bore (optional, falls back to local-only)
 - File filtering by extension and size
 - Send files, stdin, or text
+- Raw TCP for fast, efficient transfers
 
 ## Prerequisites
 
 - Zig 0.14.0 or later
-- [bore](https://github.com/ekzhang/bore) CLI installed in your PATH
+- [bore](https://github.com/ekzhang/bore) CLI (optional, for public access)
 
 ```bash
-# Install bore
+# Install bore (optional)
 cargo install bore-cli
 ```
+
+If bore is not installed, mitt will automatically fall back to local-only mode.
 
 ## Building
 
@@ -55,6 +59,9 @@ mitt open --stdout
 # Use specific port
 mitt open --port 8080
 
+# Set custom password
+mitt open --password mysecretpass
+
 # Local mode (no tunnel, for testing)
 mitt open --port 8080 --local
 ```
@@ -62,8 +69,29 @@ mitt open --port 8080 --local
 When you run `mitt open`, you'll see output like:
 
 ```
-Your mitt: calm-river-73@bore
-Public URL: https://calm-river-73.bore.pub
+🔐 Password: fuzzy-planet-cat
+Local: localhost:54321
+
+Public: bore.pub:54321
+
+To send a file:
+  mitt send bore.pub:54321 <file> --password fuzzy-planet-cat
+
+Waiting for files...
+```
+
+If bore is not installed or unavailable, it will automatically fall back:
+
+```
+🔐 Password: fuzzy-planet-cat
+Local: localhost:54321
+
+Warning: Could not establish tunnel (...)
+Running in local-only mode.
+
+To send a file:
+  mitt send localhost:54321 <file> --password fuzzy-planet-cat
+
 Waiting for files...
 ```
 
@@ -71,16 +99,19 @@ Waiting for files...
 
 ```bash
 # Send a file
-mitt send calm-river-73@bore ./document.pdf
+mitt send bore.pub:54321 ./document.pdf --password fuzzy-planet-cat
+
+# Send to localhost (local testing)
+mitt send localhost:54321 ./file.txt --password mysecretpass
 
 # Send from stdin
-cat data.txt | mitt send calm-river-73@bore -
+cat data.txt | mitt send bore.pub:54321 - --password fuzzy-planet-cat
 
 # Send literal text
-mitt send calm-river-73@bore --text "Hello, World!"
+mitt send bore.pub:54321 --text "Hello, World!" --password fuzzy-planet-cat
 
-# With custom timeout
-mitt send calm-river-73@bore ./file.txt --timeout 60
+# With custom timeout (seconds)
+mitt send bore.pub:54321 ./file.txt --password fuzzy-planet-cat --timeout 60
 ```
 
 ## Example Session
@@ -88,8 +119,15 @@ mitt send calm-river-73@bore ./file.txt --timeout 60
 Terminal 1 (receiver):
 ```bash
 $ mitt open --accept "*.txt,*.json" --max-size 10485760
-Your mitt: green-moon-17@bore
-Public URL: https://green-moon-17.bore.pub
+
+🔐 Password: happy-ocean-wolf
+Local: localhost:54321
+
+Public: bore.pub:54321
+
+To send a file:
+  mitt send bore.pub:54321 <file> --password happy-ocean-wolf
+
 Waiting for files...
 
 Received: notes.txt (421 bytes) -> ./inbox/notes.txt
@@ -97,14 +135,14 @@ Received: notes.txt (421 bytes) -> ./inbox/notes.txt
 
 Terminal 2 (sender):
 ```bash
-$ mitt send green-moon-17@bore ./notes.txt
+$ mitt send bore.pub:54321 ./notes.txt --password happy-ocean-wolf
 Delivered.
 
-$ mitt send green-moon-17@bore ./huge.zip
-Rejected: {"error": "max size 10mb, got 243mb"}
+$ mitt send bore.pub:54321 ./huge.zip --password happy-ocean-wolf
+Failed: file too large
 
-$ mitt send green-moon-17@bore ./script.exe
-Rejected: {"error": "file type not accepted: not in accept list"}
+$ mitt send bore.pub:54321 ./notes.txt --password wrongpassword
+Failed: Server rejected transfer
 ```
 
 ## Architecture
@@ -113,17 +151,32 @@ Rejected: {"error": "file type not accepted: not in accept list"}
 mitt/
 ├── src/
 │   ├── main.zig              # Entry point, arg parsing, subcommand dispatch
-│   ├── server.zig            # HTTP server for receiving data
-│   ├── client.zig            # HTTP client for sending data
-│   ├── tunnel.zig            # Tunnel provider abstraction + bore implementation
-│   ├── id.zig                # Human-readable ID generation
-│   ├── filter.zig            # Accept/reject logic (extension, size, MIME)
+│   ├── server.zig            # TCP server for receiving encrypted data
+│   ├── client.zig            # TCP client for sending encrypted data
+│   ├── crypto.zig            # XChaCha20-Poly1305 encryption/decryption
+│   ├── tunnel.zig            # Bore tunnel support
+│   ├── id.zig                # Human-readable password generation
+│   ├── filter.zig            # Accept/reject logic (extension, size)
 │   ├── storage.zig           # Write incoming files to disk
 │   ├── config.zig            # Config file parsing, defaults
 │   ├── test_integration.zig  # Integration tests
-│   └── wordlist.txt          # Words for ID generation (embedded at compile time)
+│   └── wordlist.txt          # Words for password generation (embedded at compile time)
 └── build.zig
 ```
+
+### Protocol
+
+Raw TCP with binary framing:
+
+```
+[filename_len: u16][filename: bytes][encrypted_size: u64]
+[nonce: 24 bytes][tag: 16 bytes][encrypted_data: bytes]
+[ack: 1 byte]
+```
+
+- Client encrypts file data using XChaCha20-Poly1305 with password-derived key
+- Server decrypts and validates using the same key
+- Authentication tag ensures integrity and authenticity
 
 ## Testing
 
@@ -134,20 +187,19 @@ zig build test
 ```
 
 This runs the unit tests for individual modules:
-- `id.zig` - ID generation and parsing
+- `crypto.zig` - Encryption/decryption
+- `id.zig` - Password generation
 - `filter.zig` - File filtering logic (extensions, size limits)
 - `storage.zig` - File saving and collision handling
 
 ### Integration Testing
 
-For integration testing with the full send/receive flow:
-
-#### 1. Test local file transfer (without bore tunnel)
+#### 1. Test local encrypted file transfer
 
 Terminal 1:
 ```bash
-# Start server on a specific port (no tunnel needed for local testing)
-zig-out/bin/mitt open --port 8080 --dir ./test-inbox
+# Start server on a specific port with custom password
+zig-out/bin/mitt open --port 8080 --password testpass --dir ./test-inbox --local
 ```
 
 Terminal 2:
@@ -155,104 +207,77 @@ Terminal 2:
 # Create a test file
 echo "Hello, World!" > test.txt
 
-# Send to localhost (modify client to support localhost for testing)
-# Or use curl to test the server endpoint:
-curl -X POST http://localhost:8080 \
-  -H "x-filename: test.txt" \
-  -H "x-size: 14" \
-  -H "content-type: text/plain" \
-  --data "Hello, World!"
+# Send to localhost
+zig-out/bin/mitt send localhost:8080 test.txt --password testpass
 ```
 
 Check that `./test-inbox/test.txt` contains the expected content.
 
-#### 2. Test filtering
+#### 2. Test wrong password rejection
+
+Terminal 1:
+```bash
+zig-out/bin/mitt open --port 8080 --password correctpass --dir ./test-inbox --local
+```
+
+Terminal 2:
+```bash
+# This should fail with "Server rejected transfer"
+zig-out/bin/mitt send localhost:8080 test.txt --password wrongpass
+```
+
+#### 3. Test filtering
 
 Terminal 1:
 ```bash
 # Start with accept filter
-zig-out/bin/mitt open --port 8080 --accept "*.txt" --dir ./test-inbox
+zig-out/bin/mitt open --port 8080 --password testpass --accept "*.txt" --dir ./test-inbox --local
 ```
 
 Terminal 2:
 ```bash
+echo "Allowed" > allowed.txt
+echo "Blocked" > blocked.exe
+
 # This should succeed
-curl -X POST http://localhost:8080 \
-  -H "x-filename: allowed.txt" \
-  -H "x-size: 5" \
-  --data "Hello"
+zig-out/bin/mitt send localhost:8080 allowed.txt --password testpass
 
-# This should return 403
-curl -X POST http://localhost:8080 \
-  -H "x-filename: blocked.exe" \
-  -H "x-size: 5" \
-  --data "Hello"
-```
-
-#### 3. Test size limits
-
-Terminal 1:
-```bash
-# Start with 100 byte limit
-zig-out/bin/mitt open --port 8080 --max-size 100 --dir ./test-inbox
-```
-
-Terminal 2:
-```bash
-# This should succeed (under limit)
-curl -X POST http://localhost:8080 \
-  -H "x-filename: small.txt" \
-  -H "x-size: 50" \
-  --data-binary @<(head -c 50 /dev/zero)
-
-# This should return 413
-curl -X POST http://localhost:8080 \
-  -H "x-filename: large.txt" \
-  -H "x-size: 200" \
-  --data-binary @<(head -c 200 /dev/zero)
+# This should be rejected
+zig-out/bin/mitt send localhost:8080 blocked.exe --password testpass
 ```
 
 #### 4. Test stdout mode
 
 Terminal 1:
 ```bash
-zig-out/bin/mitt open --port 8080 --stdout | tee output.txt
+zig-out/bin/mitt open --port 8080 --password testpass --stdout --local
 ```
 
 Terminal 2:
 ```bash
-curl -X POST http://localhost:8080 \
-  -H "x-filename: data.txt" \
-  -H "x-size: 14" \
-  --data "Hello, World!"
+echo "Hello, World!" | zig-out/bin/mitt send localhost:8080 - --password testpass
 ```
 
-Verify that "Hello, World!" appears in terminal 1 and in `output.txt`.
+Verify that "Hello, World!" appears in terminal 1.
 
 #### 5. Test file collision handling
 
 Terminal 1:
 ```bash
-zig-out/bin/mitt open --port 8080 --dir ./test-inbox
+zig-out/bin/mitt open --port 8080 --password testpass --dir ./test-inbox --local
 ```
 
 Terminal 2:
 ```bash
 # Send the same filename multiple times
-curl -X POST http://localhost:8080 \
-  -H "x-filename: duplicate.txt" \
-  -H "x-size: 6" \
-  --data "First"
+echo "First" > duplicate.txt
+zig-out/bin/mitt send localhost:8080 duplicate.txt --password testpass
 
-curl -X POST http://localhost:8080 \
-  -H "x-filename: duplicate.txt" \
-  -H "x-size: 7" \
-  --data "Second"
+echo "Second" > duplicate.txt
+zig-out/bin/mitt send localhost:8080 duplicate.txt --password testpass
 
-curl -X POST http://localhost:8080 \
-  -H "x-filename: duplicate.txt" \
-  -H "x-size: 6" \
-  --data "Third"
+echo "Third" > duplicate.txt
+zig-out/bin/mitt send localhost:8080 duplicate.txt --password testpass
 ```
 
 Verify that `./test-inbox` contains:
@@ -262,13 +287,13 @@ Verify that `./test-inbox` contains:
 
 #### 6. End-to-end test with bore tunnel
 
-This requires bore to be installed and running.
+This requires bore to be installed.
 
 Terminal 1:
 ```bash
 # Start mitt with bore tunnel
 zig-out/bin/mitt open --dir ./test-inbox
-# Note the mitt ID from the output, e.g., "green-moon-17@bore"
+# Note the password and address from output
 ```
 
 Terminal 2:
@@ -276,8 +301,8 @@ Terminal 2:
 # Create test file
 echo "Remote test" > remote.txt
 
-# Send via mitt client
-zig-out/bin/mitt send green-moon-17@bore remote.txt
+# Send via bore tunnel using the password from terminal 1
+zig-out/bin/mitt send bore.pub:PORT remote.txt --password PASSWORD
 ```
 
 Verify that `./test-inbox/remote.txt` exists with correct content.
@@ -286,14 +311,23 @@ Verify that `./test-inbox/remote.txt` exists with correct content.
 
 After testing, remove test artifacts:
 ```bash
-rm -rf ./test-inbox ./output.txt test.txt remote.txt
+rm -rf ./test-inbox test.txt remote.txt allowed.txt blocked.exe duplicate.txt
 ```
+
+## Security
+
+- **End-to-end encryption**: All file data is encrypted with XChaCha20-Poly1305 before transmission
+- **Password-based keys**: Keys are derived from passwords using SHA-256 (use strong passwords!)
+- **Authentication**: AEAD provides both confidentiality and authenticity
+- **No plaintext transmission**: File contents never leave your machine unencrypted
+
+**Note**: For production use, consider upgrading to Argon2 for key derivation to resist brute-force attacks.
 
 ## Exit Codes
 
-- `0` - Success
-- `1` - Rejected by receiver
-- `2` - Timeout or unreachable
+- `0` - Success (delivered)
+- `1` - Invalid usage
+- `2` - Failed (rejected, timeout, or connection error)
 
 ## License
 
