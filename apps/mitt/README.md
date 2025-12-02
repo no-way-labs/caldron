@@ -126,7 +126,7 @@ mitt send localhost:54321 ./file.txt --password mysecretpass
 cat data.txt | mitt send bore.pub:54321 - --password fuzzy-planet-cat
 
 # Send literal text
-mitt send bore.pub:54321 --text "Hello, World!" --password fuzzy-planet-cat
+mitt send bore.pub:54321 --text 'Hello, World!' --password fuzzy-planet-cat
 
 # Send JSON data
 mitt send bore.pub:54321 --text '{"hello": "world", "foo": "bar"}' --password fuzzy-planet-cat
