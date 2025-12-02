@@ -1,5 +1,7 @@
 # mitt
 
+<img src="assets/mitt_sml.gif" alt="mitt" width="400"/>
+
 A CLI tool for ephemeral, encrypted file/data transfer. One party opens a "mitt" (a publicly reachable inbox), others send to it.
 
 ## Features

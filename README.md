@@ -1,9 +1,5 @@
 # Caldron
 
-<p align="center">
-  <img src="apps/mitt/assets/mitt_sml.gif" alt="mitt" width="400"/>
-</p>
-
 A monorepo for various CLI applications written in Zig.
 
 ## Structure
