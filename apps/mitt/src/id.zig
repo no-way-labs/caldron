@@ -10,14 +10,14 @@ pub fn generate(allocator: std.mem.Allocator) ![]const u8 {
     });
     const random = prng.random();
 
-    var words = std.ArrayList([]const u8).init(allocator);
-    defer words.deinit();
+    var words = try std.ArrayList([]const u8).initCapacity(allocator, 0);
+    defer words.deinit(allocator);
 
     var lines = std.mem.tokenizeScalar(u8, wordlist_data, '\n');
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
         if (trimmed.len > 0) {
-            try words.append(trimmed);
+            try words.append(allocator, trimmed);
         }
     }
 
@@ -38,12 +38,12 @@ pub const ParsedId = struct {
 };
 
 pub fn parse(allocator: std.mem.Allocator, id: []const u8) !ParsedId {
-    var parts = std.ArrayList([]const u8).init(allocator);
-    errdefer parts.deinit();
+    var parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
+    errdefer parts.deinit(allocator);
 
     var iter = std.mem.tokenizeScalar(u8, id, '-');
     while (iter.next()) |part| {
-        try parts.append(part);
+        try parts.append(allocator, part);
     }
 
     if (parts.items.len < 3) {
@@ -54,7 +54,7 @@ pub fn parse(allocator: std.mem.Allocator, id: []const u8) !ParsedId {
     const number = std.fmt.parseInt(u16, number_str, 10) catch return error.InvalidNumber;
 
     return ParsedId{
-        .words = try parts.toOwnedSlice(),
+        .words = try parts.toOwnedSlice(allocator),
         .number = number,
     };
 }

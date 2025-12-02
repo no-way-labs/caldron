@@ -35,7 +35,7 @@ pub fn send(allocator: std.mem.Allocator, host: []const u8, port: u16, payload: 
             break :blk PayloadData{ .data = content, .filename = std.fs.path.basename(path) };
         },
         .stdin => blk: {
-            const stdin = std.io.getStdIn();
+            const stdin = std.fs.File.stdin();
             const content = stdin.readToEndAlloc(allocator, 1024 * 1024 * 1024) catch |err| {
                 const err_msg = try std.fmt.allocPrint(allocator, "Failed to read stdin: {}", .{err});
                 return SendResult{ .failed = .{ .err = err_msg } };
@@ -120,7 +120,7 @@ pub fn send(allocator: std.mem.Allocator, host: []const u8, port: u16, payload: 
 
     // Read acknowledgment
     var ack: [1]u8 = undefined;
-    const n = stream.readAll(&ack) catch {
+    const n = stream.readAtLeast(&ack, 1) catch {
         const err_msg = try std.fmt.allocPrint(allocator, "No acknowledgment from server", .{});
         return SendResult{ .failed = .{ .err = err_msg } };
     };

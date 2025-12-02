@@ -24,7 +24,7 @@ brew install mitt
 ### From Source
 
 Prerequisites:
-- Zig 0.14.0 or later
+- Zig 0.15.0 or later
 
 ```bash
 cd apps/mitt
@@ -177,7 +177,6 @@ mitt/
 │   ├── config.zig            # Config file parsing, defaults
 │   ├── test_integration.zig  # Integration tests
 │   └── wordlist.txt          # Words for password generation (embedded at compile time)
-└── build.zig
 ```
 
 ### Protocol

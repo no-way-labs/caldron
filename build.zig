@@ -5,11 +5,15 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Build mitt app
-    const mitt_exe = b.addExecutable(.{
-        .name = "mitt",
-        .root_source_file = b.path("apps/mitt/src/main.zig"),
+    const mitt_module = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .root_source_file = b.path("apps/mitt/src/main.zig"),
+    });
+
+    const mitt_exe = b.addExecutable(.{
+        .name = "mitt",
+        .root_module = mitt_module,
     });
     b.installArtifact(mitt_exe);
 
@@ -26,13 +30,31 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the default app (mitt)");
     run_step.dependOn(&mitt_run.step);
 
-    // Test step for mitt
-    const mitt_tests = b.addTest(.{
-        .root_source_file = b.path("apps/mitt/src/main.zig"),
+    // Unit tests for mitt
+    const mitt_test_module = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .root_source_file = b.path("apps/mitt/src/main.zig"),
+    });
+
+    const mitt_tests = b.addTest(.{
+        .root_module = mitt_test_module,
     });
     const run_mitt_tests = b.addRunArtifact(mitt_tests);
-    const test_step = b.step("test", "Run mitt tests");
+
+    // Integration tests for mitt
+    const integration_test_module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("apps/mitt/src/test_integration.zig"),
+    });
+
+    const integration_tests = b.addTest(.{
+        .root_module = integration_test_module,
+    });
+    const run_integration_tests = b.addRunArtifact(integration_tests);
+
+    const test_step = b.step("test", "Run all mitt tests");
     test_step.dependOn(&run_mitt_tests.step);
+    test_step.dependOn(&run_integration_tests.step);
 }

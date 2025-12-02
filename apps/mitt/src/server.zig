@@ -158,7 +158,7 @@ pub const Server = struct {
             // Get IP address for rate limiting
             const addr = connection.address;
             var ip_buf: [64]u8 = undefined;
-            const ip_str = std.fmt.bufPrint(&ip_buf, "{}", .{addr}) catch "unknown";
+            const ip_str = std.fmt.bufPrint(&ip_buf, "{any}", .{addr}) catch "unknown";
 
             // Check rate limit
             const allowed = self.rate_limiter.checkAndUpdate(ip_str) catch false;
@@ -187,7 +187,7 @@ pub const Server = struct {
 
         // Read filename length (u16)
         var filename_len_buf: [2]u8 = undefined;
-        const n1 = try stream.readAll(&filename_len_buf);
+        const n1 = try stream.readAtLeast(&filename_len_buf, 2);
         if (n1 != 2) return error.UnexpectedEOF;
         const filename_len = std.mem.readInt(u16, &filename_len_buf, .big);
 
@@ -198,7 +198,7 @@ pub const Server = struct {
         // Read filename
         const filename = try self.allocator.alloc(u8, filename_len);
         defer self.allocator.free(filename);
-        const n2 = try stream.readAll(filename);
+        const n2 = try stream.readAtLeast(filename, filename_len);
         if (n2 != filename_len) return error.UnexpectedEOF;
 
         // Sanitize filename to prevent directory traversal attacks
@@ -212,7 +212,7 @@ pub const Server = struct {
 
         // Read encrypted data size (u64)
         var encrypted_size_buf: [8]u8 = undefined;
-        const n3 = try stream.readAll(&encrypted_size_buf);
+        const n3 = try stream.readAtLeast(&encrypted_size_buf, 8);
         if (n3 != 8) return error.UnexpectedEOF;
         const encrypted_size = std.mem.readInt(u64, &encrypted_size_buf, .big);
 
@@ -251,18 +251,18 @@ pub const Server = struct {
 
         // Read nonce
         var nonce: [24]u8 = undefined;
-        const n4 = try stream.readAll(&nonce);
+        const n4 = try stream.readAtLeast(&nonce, 24);
         if (n4 != 24) return error.UnexpectedEOF;
 
         // Read tag
         var tag: [16]u8 = undefined;
-        const n5 = try stream.readAll(&tag);
+        const n5 = try stream.readAtLeast(&tag, 16);
         if (n5 != 16) return error.UnexpectedEOF;
 
         // Read encrypted data
         const ciphertext = try self.allocator.alloc(u8, encrypted_size);
         defer self.allocator.free(ciphertext);
-        const n6 = try stream.readAll(ciphertext);
+        const n6 = try stream.readAtLeast(ciphertext, encrypted_size);
         if (n6 != encrypted_size) return error.UnexpectedEOF;
 
         // Decrypt
@@ -276,18 +276,18 @@ pub const Server = struct {
         const plaintext = crypto.decrypt(self.allocator, encrypted_data, self.encryption_key) catch {
             // Add constant-time delay to prevent timing attacks
             // Attackers can't distinguish wrong password from network delay
-            std.time.sleep(100 * std.time.ns_per_ms);
+            std.Thread.sleep(100 * std.time.ns_per_ms);
             std.debug.print("Authentication failed\n", .{});
             return error.AuthenticationFailed;
         };
         defer self.allocator.free(plaintext);
 
         // Zero plaintext memory before freeing (security best practice)
-        defer std.crypto.utils.secureZero(u8, plaintext);
+        defer std.crypto.secureZero(u8, plaintext);
 
         // Save or output
         if (self.config.to_stdout) {
-            try std.io.getStdOut().writeAll(plaintext);
+            try std.fs.File.stdout().writeAll(plaintext);
         } else {
             var fbs = std.io.fixedBufferStream(plaintext);
             const result = try storage.save(self.allocator, self.config.dir, sanitized_filename, fbs.reader().any());

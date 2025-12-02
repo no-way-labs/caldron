@@ -70,7 +70,7 @@ fn establishBore(allocator: std.mem.Allocator, local_port: u16) !Tunnel {
             }
         }
 
-        std.time.sleep(100 * std.time.ns_per_ms);
+        std.Thread.sleep(100 * std.time.ns_per_ms);
     }
 
     _ = process.kill() catch {};

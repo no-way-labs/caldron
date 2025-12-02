@@ -31,7 +31,7 @@ pub fn main() !void {
 }
 
 fn printUsage() !void {
-    const usage =
+    std.debug.print(
         \\Usage: mitt <command> [options]
         \\
         \\Commands:
@@ -54,8 +54,7 @@ fn printUsage() !void {
         \\  --timeout <seconds> Wait time (default: 30)
         \\  --password <pass> Encryption password (required)
         \\
-    ;
-    try std.io.getStdErr().writeAll(usage);
+    , .{});
 }
 
 fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
@@ -257,15 +256,15 @@ fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
 }
 
 fn parseGlobs(allocator: std.mem.Allocator, input: []const u8) ![]const []const u8 {
-    var list = std.ArrayList([]const u8).init(allocator);
-    errdefer list.deinit();
+    var list = try std.ArrayList([]const u8).initCapacity(allocator, 0);
+    errdefer list.deinit(allocator);
 
     var iter = std.mem.tokenizeScalar(u8, input, ',');
     while (iter.next()) |glob| {
-        try list.append(glob);
+        try list.append(allocator, glob);
     }
 
-    return try list.toOwnedSlice();
+    return try list.toOwnedSlice(allocator);
 }
 
 test "simple test" {

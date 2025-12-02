@@ -14,9 +14,8 @@ caldron/
 │       │   ├── client.zig
 │       │   ├── crypto.zig
 │       │   └── ...
-│       ├── build.zig
 │       └── README.md
-└── build.zig            # Root build file
+└── build.zig            # Root build file (builds all apps)
 ```
 
 ## Installation
@@ -126,9 +125,7 @@ To add a new CLI app:
 
 2. Add your Zig source files in `apps/my-new-app/src/main.zig`
 
-3. Create `apps/my-new-app/build.zig` (copy from mitt as template)
-
-4. Update the root `build.zig` to include your new app
+3. Update the root `build.zig` to include your new app (add module, executable, and test steps)
 
 ## License
 
