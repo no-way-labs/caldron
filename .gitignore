@@ -2,3 +2,4 @@
 zig-out/
 *.o
 release-assets/
+.DS_Store
