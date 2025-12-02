@@ -17,9 +17,35 @@ pub const EncryptedData = struct {
 pub fn deriveKey(password: []const u8) [32]u8 {
     var key: [32]u8 = undefined;
 
-    // Simple key derivation using SHA-256
-    // In production, use Argon2, but for simplicity we'll use SHA-256
-    std.crypto.hash.sha2.Sha256.hash(password, &key, .{});
+    // Use Argon2id for secure password-based key derivation
+    // Salt is derived from a fixed context string - in a multi-user system,
+    // this should be random per-user and stored. For peer-to-peer transfers
+    // where both parties need the same key from the same password, we use
+    // a deterministic salt.
+    const salt = "mitt-v1-salt-24!"; // Exactly 16 bytes
+    var salt_bytes: [16]u8 = undefined;
+    @memcpy(&salt_bytes, salt);
+
+    // Argon2id parameters (balanced security/performance)
+    // - 3 iterations (recommended minimum)
+    // - 64 MiB memory (good balance for client devices)
+    // - 4 parallel threads
+    std.crypto.pwhash.argon2.kdf(
+        std.heap.page_allocator,
+        &key,
+        password,
+        &salt_bytes,
+        .{
+            .t = 3,  // time cost (iterations)
+            .m = 65536,  // memory cost in KiB (64 MiB)
+            .p = 4,  // parallelism
+        },
+        .argon2id,
+    ) catch |err| {
+        // Fallback to deterministic key on error (should never happen)
+        std.debug.print("Warning: Argon2 KDF failed: {}, using SHA-256 fallback\n", .{err});
+        std.crypto.hash.sha2.Sha256.hash(password, &key, .{});
+    };
 
     return key;
 }

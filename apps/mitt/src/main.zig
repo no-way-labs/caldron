@@ -41,6 +41,7 @@ fn printUsage() !void {
         \\Open options:
         \\  --port <port>     Local port (default: random)
         \\  --local           Local only, no tunnel (for testing)
+        \\  --quiet           Don't display password in output
         \\  --dir <path>      Save directory (default: ./inbox)
         \\  --stdout          Print to stdout instead of saving
         \\  --accept <globs>  Whitelist (e.g., *.txt,*.csv)
@@ -62,6 +63,7 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
     var dir: []const u8 = "./inbox";
     var to_stdout = false;
     var local_only = false;
+    var quiet = false;
     var accept: ?[]const []const u8 = null;
     var reject: ?[]const []const u8 = null;
     var max_size: u64 = 100 * 1024 * 1024;
@@ -74,6 +76,14 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         if (std.mem.eql(u8, arg, "--port") and i + 1 < args.len) {
             i += 1;
             port = try std.fmt.parseInt(u16, args[i], 10);
+            // Validate port number
+            if (port == 0) {
+                std.debug.print("Error: Port must be between 1-65535\n", .{});
+                std.process.exit(1);
+            }
+            if (port < 1024) {
+                std.debug.print("Warning: Port {d} requires root/admin privileges\n", .{port});
+            }
         } else if (std.mem.eql(u8, arg, "--dir") and i + 1 < args.len) {
             i += 1;
             dir = args[i];
@@ -81,6 +91,8 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
             to_stdout = true;
         } else if (std.mem.eql(u8, arg, "--local")) {
             local_only = true;
+        } else if (std.mem.eql(u8, arg, "--quiet")) {
+            quiet = true;
         } else if (std.mem.eql(u8, arg, "--accept") and i + 1 < args.len) {
             i += 1;
             accept = try parseGlobs(allocator, args[i]);
@@ -131,7 +143,9 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
     }, key);
     defer srv.shutdown();
 
-    std.debug.print("\n🔐 Password: {s}\n", .{password});
+    if (!quiet) {
+        std.debug.print("\n🔐 Password: {s}\n", .{password});
+    }
     std.debug.print("Local: localhost:{d}\n\n", .{port});
 
     var tun_opt: ?tunnel.Tunnel = null;
@@ -141,17 +155,23 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         if (tunnel.Tunnel.establish(allocator, port)) |tun| {
             tun_opt = tun;
             std.debug.print("Public: {s}:{d}\n", .{ tun.public_host, tun.public_port });
-            std.debug.print("\nTo send a file:\n", .{});
-            std.debug.print("  mitt send {s}:{d} <file> --password {s}\n\n", .{ tun.public_host, tun.public_port, password });
+            if (!quiet) {
+                std.debug.print("\nTo send a file:\n", .{});
+                std.debug.print("  mitt send {s}:{d} <file> --password {s}\n\n", .{ tun.public_host, tun.public_port, password });
+            }
         } else |err| {
             std.debug.print("Warning: Could not establish tunnel ({any})\n", .{err});
             std.debug.print("Running in local-only mode.\n\n", .{});
+            if (!quiet) {
+                std.debug.print("To send a file:\n", .{});
+                std.debug.print("  mitt send localhost:{d} <file> --password {s}\n\n", .{ port, password });
+            }
+        }
+    } else {
+        if (!quiet) {
             std.debug.print("To send a file:\n", .{});
             std.debug.print("  mitt send localhost:{d} <file> --password {s}\n\n", .{ port, password });
         }
-    } else {
-        std.debug.print("To send a file:\n", .{});
-        std.debug.print("  mitt send localhost:{d} <file> --password {s}\n\n", .{ port, password });
     }
 
     std.debug.print("Waiting for files...\n\n", .{});
@@ -203,6 +223,12 @@ fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
 
     const host = target[0..colon_pos];
     const port = try std.fmt.parseInt(u16, target[colon_pos + 1 ..], 10);
+
+    // Validate port number
+    if (port == 0) {
+        std.debug.print("Error: Port must be between 1-65535\n", .{});
+        std.process.exit(1);
+    }
 
     const payload = if (text_payload) |text|
         client.Payload{ .text = text }

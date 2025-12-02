@@ -19,8 +19,6 @@ const PayloadData = struct {
 };
 
 pub fn send(allocator: std.mem.Allocator, host: []const u8, port: u16, payload: Payload, key: [32]u8, timeout_ms: u64) !SendResult {
-    _ = timeout_ms;
-
     // Load payload
     const payload_data = switch (payload) {
         .file => |path| blk: {
@@ -61,6 +59,37 @@ pub fn send(allocator: std.mem.Allocator, host: []const u8, port: u16, payload: 
         return SendResult{ .failed = .{ .err = err_msg } };
     };
     defer stream.close();
+
+    // Set socket timeouts
+    if (timeout_ms > 0) {
+        const timeout_secs: u32 = @intCast(@min(timeout_ms / 1000, std.math.maxInt(u32)));
+        const timeout_usecs: u32 = @intCast((timeout_ms % 1000) * 1000);
+
+        const timeout = std.posix.timeval{
+            .sec = @intCast(timeout_secs),
+            .usec = @intCast(timeout_usecs),
+        };
+
+        // Set receive timeout
+        std.posix.setsockopt(
+            stream.handle,
+            std.posix.SOL.SOCKET,
+            std.posix.SO.RCVTIMEO,
+            std.mem.asBytes(&timeout),
+        ) catch |err| {
+            std.debug.print("Warning: Failed to set receive timeout: {}\n", .{err});
+        };
+
+        // Set send timeout
+        std.posix.setsockopt(
+            stream.handle,
+            std.posix.SOL.SOCKET,
+            std.posix.SO.SNDTIMEO,
+            std.mem.asBytes(&timeout),
+        ) catch |err| {
+            std.debug.print("Warning: Failed to set send timeout: {}\n", .{err});
+        };
+    }
 
     // Send filename length (u16)
     if (payload_data.filename.len > std.math.maxInt(u16)) {

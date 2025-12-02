@@ -90,10 +90,18 @@ An encrypted file transfer CLI tool. One party opens a "mitt" (a publicly reacha
 
 **Features:**
 - End-to-end encryption using XChaCha20-Poly1305
-- Password-based authentication
+- Argon2id key derivation for strong password protection
+- Rate limiting and DoS protection
 - Tunneling via bore (optional)
 - File filtering by extension and size
 - Raw TCP for fast transfers
+
+**Security:**
+- Argon2id-based key derivation (64 MiB memory, 3 iterations)
+- Rate limiting (10 connections/min per IP)
+- Filename sanitization (prevents path traversal)
+- Constant-time authentication
+- Memory security (plaintext zeroed)
 
 ```bash
 # Receiver
@@ -104,6 +112,8 @@ mitt send bore.pub:54321 file.txt --password fuzzy-planet-cat
 ```
 
 See [apps/mitt/README.md](apps/mitt/README.md) for full documentation.
+
+**Note**: mitt is designed for trusted peer-to-peer transfers. Use over VPNs or trusted networks for sensitive data.
 
 ## Adding New Apps
 
