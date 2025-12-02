@@ -1,7 +1,7 @@
 class Mitt < Formula
   desc "Encrypted file transfer CLI tool"
   homepage "https://github.com/no-way-labs/caldron"
-  version "0.1.0"
+  version "0.2.0"
   license "MIT"
 
   on_macos do
