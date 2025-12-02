@@ -41,16 +41,14 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.14.0
+          version: 0.15.2
 
       - name: Build mitt
         run: |
-          cd apps/mitt
           zig build -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
 
       - name: Package binary
         run: |
-          cd apps/mitt
           mkdir -p dist
           cp zig-out/bin/mitt dist/
           cd dist
@@ -62,8 +60,8 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: |
-            apps/mitt/dist/${{ matrix.artifact }}.tar.gz
-            apps/mitt/dist/${{ matrix.artifact }}.tar.gz.sha256
+            dist/${{ matrix.artifact }}.tar.gz
+            dist/${{ matrix.artifact }}.tar.gz.sha256
 
   release:
     name: Create Release
