@@ -178,19 +178,19 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
 }
 
 fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
-    if (args.len < 2) {
-        std.debug.print("Usage: mitt send <host:port> <payload> --password <pass>\n", .{});
+    if (args.len < 1) {
+        std.debug.print("Usage: mitt send <host:port> [<payload>] --password <pass> [--text <text>]\n", .{});
         std.process.exit(1);
     }
 
     const target = args[0];
-    const payload_arg = args[1];
 
+    var payload_arg: ?[]const u8 = null;
     var text_payload: ?[]const u8 = null;
     var timeout_seconds: u64 = 30;
     var password_opt: ?[]const u8 = null;
 
-    var i: usize = 2;
+    var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
 
@@ -203,6 +203,9 @@ fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         } else if (std.mem.eql(u8, arg, "--password") and i + 1 < args.len) {
             i += 1;
             password_opt = args[i];
+        } else if (!std.mem.startsWith(u8, arg, "--") and payload_arg == null) {
+            // First non-flag argument is the payload
+            payload_arg = arg;
         }
     }
 
@@ -231,10 +234,15 @@ fn handleSend(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
 
     const payload = if (text_payload) |text|
         client.Payload{ .text = text }
-    else if (std.mem.eql(u8, payload_arg, "-"))
-        client.Payload.stdin
-    else
-        client.Payload{ .file = payload_arg };
+    else if (payload_arg) |arg|
+        if (std.mem.eql(u8, arg, "-"))
+            client.Payload.stdin
+        else
+            client.Payload{ .file = arg }
+    else {
+        std.debug.print("Error: Must provide either a file path or --text flag\n", .{});
+        std.process.exit(1);
+    };
 
     const result = try client.send(allocator, host, port, payload, key, timeout_seconds * 1000);
 
