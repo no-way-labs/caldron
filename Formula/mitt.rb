@@ -1,26 +1,26 @@
 class Mitt < Formula
   desc "Encrypted file transfer CLI tool"
   homepage "https://github.com/no-way-labs/caldron"
-  version "0.3.0"
+  version "0.4.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/no-way-labs/caldron/releases/download/v0.3.0/mitt-macos-aarch64.tar.gz"
-      sha256 "1e11baa5b39728b368b79399b456a167879312490fb7941cfd202ded4f059e5e"
+      url "https://github.com/no-way-labs/caldron/releases/download/v0.4.0/mitt-macos-aarch64.tar.gz"
+      sha256 "ff7d6b56b93bd567cbb5cc820a2df206116b280015173224cc0f675620bf3bd4"
     else
-      url "https://github.com/no-way-labs/caldron/releases/download/v0.3.0/mitt-macos-x86_64.tar.gz"
-      sha256 "049e3bd67a46fc362d6ba631338e53e4ad59ada0789afa7238b2805ed87c3637"
+      url "https://github.com/no-way-labs/caldron/releases/download/v0.4.0/mitt-macos-x86_64.tar.gz"
+      sha256 "cd6e957320374b9d2c19993e9edfe5017439e25f7ee92b7219aaa2fe35684bf6"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/no-way-labs/caldron/releases/download/v0.3.0/mitt-linux-aarch64.tar.gz"
-      sha256 "b8486b8af606f8a64a294146dc68dd4e6bf60c945427d037d0c297a1cda47cd1"
+      url "https://github.com/no-way-labs/caldron/releases/download/v0.4.0/mitt-linux-aarch64.tar.gz"
+      sha256 "eb14d2bb257c53df5054e3c14b350d358103acbc6a9d0d4f6d6a969f6fbe5d28"
     else
-      url "https://github.com/no-way-labs/caldron/releases/download/v0.3.0/mitt-linux-x86_64.tar.gz"
-      sha256 "2fb8f44f3209c940d1292617df1c6ee6f27edcc5759d004e300a7641af1ff497"
+      url "https://github.com/no-way-labs/caldron/releases/download/v0.4.0/mitt-linux-x86_64.tar.gz"
+      sha256 "0b408d3226a5ac2387e498cc8b80967e44dd09eae21e3270ea0a102c1b8cb1f2"
     end
   end
 
