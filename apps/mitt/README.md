@@ -74,8 +74,12 @@ mitt open --max-size 10485760  # 10MB
 # Print received data to stdout instead of saving
 mitt open --stdout
 
-# Use specific port
+# Use specific local port
 mitt open --port 8080
+
+# Request specific remote bore port (if available)
+# Note: You'll be notified if the requested port is unavailable
+mitt open --bore-port 9000
 
 # Set custom password
 mitt open --password mysecretpass
@@ -94,6 +98,20 @@ Public: bore.pub:54321
 
 To send a file:
   mitt send bore.pub:54321 <file> --password fuzzy-planet-cat
+
+Waiting for files...
+```
+
+If you request a specific bore port that's unavailable, you'll see:
+
+```
+🔐 Password: fuzzy-planet-cat
+Local: localhost:54321
+
+Public: bore.pub:43210 (requested 9000 but port was unavailable)
+
+To send a file:
+  mitt send bore.pub:43210 <file> --password fuzzy-planet-cat
 
 Waiting for files...
 ```

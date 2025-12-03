@@ -2,6 +2,13 @@
 
 All notable changes to mitt will be documented in this file.
 
+## [0.4.0] - 2025-12-03
+
+### Added
+- `--bore-port` flag to request specific remote bore port (with automatic fallback if unavailable)
+- User notification when requested bore port is unavailable and a different port is assigned
+- Input validation for bore port parameter (0-65535)
+
 ## [0.3.0] - 2025-12-02
 
 ### Fixed

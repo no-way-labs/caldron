@@ -3,11 +3,12 @@ const std = @import("std");
 pub const Tunnel = struct {
     public_host: []const u8,
     public_port: u16,
+    requested_port: u16,
     process: std.process.Child,
     allocator: std.mem.Allocator,
 
-    pub fn establish(allocator: std.mem.Allocator, local_port: u16) !Tunnel {
-        return try establishBore(allocator, local_port);
+    pub fn establish(allocator: std.mem.Allocator, local_port: u16, bore_port: u16) !Tunnel {
+        return try establishBore(allocator, local_port, bore_port);
     }
 
     pub fn shutdown(self: *Tunnel) void {
@@ -16,17 +17,33 @@ pub const Tunnel = struct {
     }
 };
 
-fn establishBore(allocator: std.mem.Allocator, local_port: u16) !Tunnel {
+fn establishBore(allocator: std.mem.Allocator, local_port: u16, bore_port: u16) !Tunnel {
     const port_str = try std.fmt.allocPrint(allocator, "{d}", .{local_port});
     defer allocator.free(port_str);
 
-    var process = std.process.Child.init(&[_][]const u8{
-        "bore",
-        "local",
-        port_str,
-        "--to",
-        "bore.pub",
-    }, allocator);
+    const bore_port_str = try std.fmt.allocPrint(allocator, "{d}", .{bore_port});
+    defer allocator.free(bore_port_str);
+
+    const args = if (bore_port > 0)
+        &[_][]const u8{
+            "bore",
+            "local",
+            port_str,
+            "--to",
+            "bore.pub",
+            "--port",
+            bore_port_str,
+        }
+    else
+        &[_][]const u8{
+            "bore",
+            "local",
+            port_str,
+            "--to",
+            "bore.pub",
+        };
+
+    var process = std.process.Child.init(args, allocator);
 
     process.stdout_behavior = .Pipe;
     process.stderr_behavior = .Pipe;
@@ -64,6 +81,7 @@ fn establishBore(allocator: std.mem.Allocator, local_port: u16) !Tunnel {
                 return Tunnel{
                     .public_host = public_host,
                     .public_port = public_port,
+                    .requested_port = bore_port,
                     .process = process,
                     .allocator = allocator,
                 };

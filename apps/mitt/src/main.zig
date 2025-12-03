@@ -40,6 +40,7 @@ fn printUsage() !void {
         \\
         \\Open options:
         \\  --port <port>     Local port (default: random)
+        \\  --bore-port <port> Remote bore port to request (default: random)
         \\  --local           Local only, no tunnel (for testing)
         \\  --quiet           Don't display password in output
         \\  --dir <path>      Save directory (default: ./inbox)
@@ -59,6 +60,7 @@ fn printUsage() !void {
 
 fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
     var port: u16 = 0;
+    var bore_port: u16 = 0;
     var dir: []const u8 = "./inbox";
     var to_stdout = false;
     var local_only = false;
@@ -83,6 +85,12 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
             if (port < 1024) {
                 std.debug.print("Warning: Port {d} requires root/admin privileges\n", .{port});
             }
+        } else if (std.mem.eql(u8, arg, "--bore-port") and i + 1 < args.len) {
+            i += 1;
+            bore_port = std.fmt.parseInt(u16, args[i], 10) catch {
+                std.debug.print("Error: Bore port must be between 0-65535\n", .{});
+                std.process.exit(1);
+            };
         } else if (std.mem.eql(u8, arg, "--dir") and i + 1 < args.len) {
             i += 1;
             dir = args[i];
@@ -151,9 +159,16 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
     defer if (tun_opt) |*tun| tun.shutdown();
 
     if (!local_only) {
-        if (tunnel.Tunnel.establish(allocator, port)) |tun| {
+        if (tunnel.Tunnel.establish(allocator, port, bore_port)) |tun| {
             tun_opt = tun;
-            std.debug.print("Public: {s}:{d}\n", .{ tun.public_host, tun.public_port });
+            std.debug.print("Public: {s}:{d}", .{ tun.public_host, tun.public_port });
+
+            // Check if we got a different port than requested
+            if (tun.requested_port > 0 and tun.requested_port != tun.public_port) {
+                std.debug.print(" (requested {d} but port was unavailable)", .{tun.requested_port});
+            }
+            std.debug.print("\n", .{});
+
             if (!quiet) {
                 std.debug.print("\nTo send a file:\n", .{});
                 std.debug.print("  mitt send {s}:{d} <file> --password {s}\n\n", .{ tun.public_host, tun.public_port, password });
