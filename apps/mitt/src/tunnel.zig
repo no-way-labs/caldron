@@ -51,21 +51,25 @@ fn establishBore(allocator: std.mem.Allocator, local_port: u16, bore_port: u16) 
     try process.spawn();
 
     var stdout_buffer: [4096]u8 = undefined;
-    var total_read: usize = 0;
+    var stderr_buffer: [4096]u8 = undefined;
+    var stdout_read: usize = 0;
+    var stderr_read: usize = 0;
 
     const stdout = process.stdout.?;
+    const stderr = process.stderr.?;
     var timeout_counter: u32 = 0;
     const max_timeout: u32 = 100;
 
     while (timeout_counter < max_timeout) : (timeout_counter += 1) {
-        const bytes_read = stdout.read(stdout_buffer[total_read..]) catch |err| {
+        // Read from stdout
+        const stdout_bytes = stdout.read(stdout_buffer[stdout_read..]) catch |err| {
             _ = process.kill() catch {};
             return err;
         };
 
-        if (bytes_read > 0) {
-            total_read += bytes_read;
-            const output = stdout_buffer[0..total_read];
+        if (stdout_bytes > 0) {
+            stdout_read += stdout_bytes;
+            const output = stdout_buffer[0..stdout_read];
 
             // Look for "listening at bore.pub:PORT"
             if (std.mem.indexOf(u8, output, "listening at bore.pub:")) |pos| {
@@ -85,6 +89,21 @@ fn establishBore(allocator: std.mem.Allocator, local_port: u16, bore_port: u16) 
                     .process = process,
                     .allocator = allocator,
                 };
+            }
+        }
+
+        // Check stderr for errors
+        const stderr_bytes = stderr.read(stderr_buffer[stderr_read..]) catch 0;
+        if (stderr_bytes > 0) {
+            stderr_read += stderr_bytes;
+            const stderr_output = stderr_buffer[0..stderr_read];
+
+            // Check for port already in use error
+            if (std.mem.indexOf(u8, stderr_output, "address already in use") != null or
+                std.mem.indexOf(u8, stderr_output, "port") != null and std.mem.indexOf(u8, stderr_output, "in use") != null)
+            {
+                _ = process.kill() catch {};
+                return error.PortInUse;
             }
         }
 

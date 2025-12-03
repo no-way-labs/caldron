@@ -102,13 +102,14 @@ To send a file:
 Waiting for files...
 ```
 
-If you request a specific bore port that's unavailable, you'll see:
+If you request a specific bore port that's already in use, mitt will automatically fall back to a random port:
 
 ```
 🔐 Password: fuzzy-planet-cat
 Local: localhost:54321
 
-Public: bore.pub:43210 (requested 9000 but port was unavailable)
+Bore port 9000 is already in use, trying random port...
+Public: bore.pub:43210
 
 To send a file:
   mitt send bore.pub:43210 <file> --password fuzzy-planet-cat

@@ -174,11 +174,32 @@ fn handleOpen(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
                 std.debug.print("  mitt send {s}:{d} <file> --password {s}\n\n", .{ tun.public_host, tun.public_port, password });
             }
         } else |err| {
-            std.debug.print("Warning: Could not establish tunnel ({any})\n", .{err});
-            std.debug.print("Running in local-only mode.\n\n", .{});
-            if (!quiet) {
-                std.debug.print("To send a file:\n", .{});
-                std.debug.print("  mitt send localhost:{d} <file> --password {s}\n\n", .{ port, password });
+            // If a specific port was requested but is in use, retry with random port
+            if (err == error.PortInUse and bore_port > 0) {
+                std.debug.print("Bore port {d} is already in use, trying random port...\n", .{bore_port});
+                if (tunnel.Tunnel.establish(allocator, port, 0)) |tun| {
+                    tun_opt = tun;
+                    std.debug.print("Public: {s}:{d}\n", .{ tun.public_host, tun.public_port });
+
+                    if (!quiet) {
+                        std.debug.print("\nTo send a file:\n", .{});
+                        std.debug.print("  mitt send {s}:{d} <file> --password {s}\n\n", .{ tun.public_host, tun.public_port, password });
+                    }
+                } else |retry_err| {
+                    std.debug.print("Warning: Could not establish tunnel ({any})\n", .{retry_err});
+                    std.debug.print("Running in local-only mode.\n\n", .{});
+                    if (!quiet) {
+                        std.debug.print("To send a file:\n", .{});
+                        std.debug.print("  mitt send localhost:{d} <file> --password {s}\n\n", .{ port, password });
+                    }
+                }
+            } else {
+                std.debug.print("Warning: Could not establish tunnel ({any})\n", .{err});
+                std.debug.print("Running in local-only mode.\n\n", .{});
+                if (!quiet) {
+                    std.debug.print("To send a file:\n", .{});
+                    std.debug.print("  mitt send localhost:{d} <file> --password {s}\n\n", .{ port, password });
+                }
             }
         }
     } else {
